@@ -1,0 +1,6 @@
+https://youtu.be/075GdL5tLnY
+
+Vídeo do programa sendo executado e simulando o acionamento dos depositos
+*led vermelho: deposito 1
+*led amarelo: deposito 2
+*led verde: deposito 3
