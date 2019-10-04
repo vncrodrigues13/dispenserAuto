@@ -1,0 +1,1265 @@
+#include <EEPROM.h>
+#include <LiquidCrystal.h>
+#include <Wire.h>
+#include "RTClib.h"
+
+// =============================================================================================================
+// --- Mapeamento de Hardware ---
+
+#define   dp1    A0    //dispenser 1
+#define   dp2    A1    //dispenser 2
+#define   dp3    A2    //dispenser 3
+#define   bt_h   A15   //botão voltar
+RTC_DS1307 rtc;
+#define   espacoEEPROM 4000 // 4kb
+
+// =============================================================================================================
+// --- Constantes e Objetos ---
+
+const int rs = 12, en = 11, d4 = 5, d5 = 4, d6 = 3, d7 = 2;
+LiquidCrystal lcd(rs, en, d4, d5, d6, d7);
+const int d_semana = 7;
+const int n_deposito = 3;
+
+// =============================================================================================================
+// --- Variáveis Globais ---
+
+int M_V = 0, M_H = 0, menuTurno = 0;
+
+int MANHA[n_deposito][d_semana];  //MATRIZ MANHA
+int TARDE[n_deposito][d_semana];  //MATRIZ TARDE
+int NOITE[n_deposito][d_semana];  //MATRIZ NOITE
+int eixo_X = A13;
+int eixo_Y = A14;
+int hora, dia, mes, ano, seg, minu, ds, turnoInt;
+String tr;
+
+// =============================================================================================================
+// --- Configurações Iniciais ---
+
+void setup() {
+
+  //LIMPAR EEPROM
+  //for (int nL = 0; nL < espacoEEPROM; nL++) {
+  //    EEPROM.write(nL, 0);
+  //}
+
+  lcd.begin(16, 2);
+  pinMode(bt_h, INPUT_PULLUP);
+
+  if (! rtc.begin()) { // NÃO TIRAR, NÃO SEI O PORQUE
+    Serial.println("Couldn't find RTC");
+    while (1);
+  }
+  //CONTROLAR O RTC
+  //rtc.adjust(DateTime(F(__DATE__), F(__TIME__))); 
+  //rtc.adjust(DateTime(2019, 10, 03, 4, 59, 50));
+
+  leMemoria();
+} //end setup
+
+// =============================================================================================================
+// --- Configurações loop ---
+
+void loop() {
+
+  DateTime now = rtc.now();
+  hora = (now.hour());
+  minu = (now.minute());
+  dia = (now.day());
+  mes = (now.month());
+  ano = (now.year());
+  seg = (now.second());
+
+  ds = diasemana(dia, mes, ano); //{0 = segunda; 1 = terça.....
+  turnoInt = turno(hora);                 //{0 = manhã; 1 = tarde.....
+
+  keyboard();
+
+  switch (M_V) {
+    case 0: menuEspera(); break;
+    case 1: menuSegunda(); break;
+    case 2: menuTerca(); break;
+    case 3: menuQuarta(); break;
+    case 4: menuQuinta(); break;
+    case 5: menuSexta(); break;
+    case 6: menuSabado(); break;
+    case 7: menuDomingo(); break;
+  } //end switch
+
+
+  if (hora == 5 && minu == 0 && seg == 0) { // acionar os depositos
+    depositos(ds, turnoInt);
+  }
+
+} //end loop
+
+
+// =============================================================================================================
+// --- Função leitura de controles ---
+
+void keyboard() {
+  if (analogRead(eixo_Y) == 0 && M_H == 0) {
+
+    if (M_V <= 8) {
+      M_V += 1;
+    }
+    if (M_V == 8) {
+      M_V = 1;
+    }
+    delay(500);
+
+  } //end bt_r
+
+  if (analogRead(eixo_Y) == 1023 && M_H == 0) {
+
+    if (M_V > 0) {
+      M_V -= 1;
+    }
+    delay(500);
+
+  } //end bt_l
+
+  if ((analogRead(eixo_X) == 1023)) {
+
+    if (M_H <= 4) {
+      M_H += 1;
+    }
+    if (M_V == 0) {
+      M_H = 0;
+    }
+    delay(500);
+
+  } //end bt_e
+
+  if ((analogRead(eixo_X) == 0)) {
+    if (M_H == 2) {
+      M_H = 5;
+    }
+    else if (M_H > 0) {
+      M_H -= 1;
+    }
+    else if (M_H == 0) {
+      M_V = 0;
+    }
+    if (M_H == 0) {
+      menuTurno = 0; // seta o turno pra default quando no menu V principal
+    }
+
+    delay(500);
+
+  } //end bt_b
+
+  if (!digitalRead(bt_h)) {
+    delay(500);
+    if (M_H > 0) {
+      M_H = 5;
+    }
+    else if (M_H == 0) {
+      M_V = 0;
+    }
+
+    else {
+      M_V = 0;
+      M_H = 0;
+    }
+  } //end bt_b
+
+} //end keyboard
+
+// =============================================================================================================
+// --- Menu Vertical x Horinzontal ---
+
+void menuEspera()
+{
+  switch (M_H) {
+
+    case 0:
+      lcd.setCursor(0, 0);
+      DateTime now = rtc.now();
+      if ((now.day()) < 10) {
+        lcd.print("0");
+      }
+      lcd.print(now.day());
+      lcd.print('/');
+      if ((now.month()) < 10) {
+        lcd.print("0");
+      }
+      lcd.print(now.month());
+      lcd.print('/');
+      lcd.print(now.year());
+      lcd.print(" ");
+      if ((now.hour()) < 10) {
+        lcd.print("0");
+      }
+      lcd.print(now.hour());
+      lcd.print(':');
+      if ((now.minute()) < 10) {
+        lcd.print("0");
+      }
+      lcd.print(now.minute());
+      lcd.setCursor(0, 1);
+      lcd.print("   Pressione >  ");
+      break;
+  }
+
+} //end menuEspera
+
+
+void menuDomingo() {
+  switch (M_H) {
+    case 0:
+      lcd.setCursor(0, 0);
+      lcd.print(" DIA DA SEMANA: ");
+      lcd.setCursor(0, 1);
+      lcd.print("<   Domingo    >");
+
+      break;
+    case 1:
+      lcd.setCursor(0, 0);
+      lcd.print("Domingo: Turno:");
+      tr = printturno();
+      lcd.setCursor(0, 1);
+      lcd.print("<    " + tr + "     >");
+      break;
+    case 2:
+      lcd.setCursor(0, 0);
+      lcd.print("Domingo:  Dep 1:");
+      switch (menuTurno) {
+        case 0:
+          MANHA[M_H - 2][M_V - 1] = contador(MANHA[M_H - 2][M_V - 1]);
+          lcd.setCursor(0, 1);
+          lcd.print(MANHA[M_H - 2][M_V - 1]);
+          break;
+        case 1:
+          TARDE[M_H - 2][M_V - 1] = contador(TARDE[M_H - 2][M_V - 1]);
+          lcd.setCursor(0, 1);
+          lcd.print(TARDE[M_H - 2][M_V - 1]);
+          break;
+        case 2:
+          NOITE[M_H - 2][M_V - 1] = contador(NOITE[M_H - 2][M_V - 1]);
+          lcd.setCursor(0, 1);
+          lcd.print(NOITE[M_H - 2][M_V - 1]);
+          break;
+      }
+      break;
+    case 3:
+      lcd.setCursor(0, 0);
+      lcd.print("Domingo:  Dep 2:");
+      switch (menuTurno) {
+        case 0:
+          MANHA[M_H - 2][M_V - 1] = contador(MANHA[M_H - 2][M_V - 1]);
+          lcd.setCursor(0, 1);
+          lcd.print(MANHA[M_H - 2][M_V - 1]);
+          break;
+        case 1:
+          TARDE[M_H - 2][M_V - 1] = contador(TARDE[M_H - 2][M_V - 1]);
+          lcd.setCursor(0, 1);
+          lcd.print(TARDE[M_H - 2][M_V - 1]);
+          break;
+        case 2:
+          NOITE[M_H - 2][M_V - 1] = contador(NOITE[M_H - 2][M_V - 1]);
+          lcd.setCursor(0, 1);
+          lcd.print(NOITE[M_H - 2][M_V - 1]);
+          break;
+      }
+      break;
+    case 4:
+      lcd.setCursor(0, 0);
+      lcd.print("Domingo:  Dep 3:");
+      switch (menuTurno) {
+        case 0:
+          MANHA[M_H - 2][M_V - 1] = contador(MANHA[M_H - 2][M_V - 1]);
+          lcd.setCursor(0, 1);
+          lcd.print(MANHA[M_H - 2][M_V - 1]);
+          break;
+        case 1:
+          TARDE[M_H - 2][M_V - 1] = contador(TARDE[M_H - 2][M_V - 1]);
+          lcd.setCursor(0, 1);
+          lcd.print(TARDE[M_H - 2][M_V - 1]);
+          break;
+        case 2:
+          NOITE[M_H - 2][M_V - 1] = contador(NOITE[M_H - 2][M_V - 1]);
+          lcd.setCursor(0, 1);
+          lcd.print(NOITE[M_H - 2][M_V - 1]);
+          break;
+      }
+      break;
+    case 5:
+      confirma();
+      break;
+  }
+
+} //end menuDomingo
+
+
+void menuSegunda() {
+  switch (M_H) {
+    case 0:
+      lcd.setCursor(0, 0);
+      lcd.print(" DIA DA SEMANA: ");
+      lcd.setCursor(0, 1);
+      lcd.print("< Segunda-Feira>");
+
+      break;
+    case 1:
+      lcd.setCursor(0, 0);
+      lcd.print("Segunda: Turno:");
+      tr = printturno();
+      lcd.setCursor(0, 1);
+      lcd.print("<    " + tr + "     >");
+      break;
+    case 2:
+      lcd.setCursor(0, 0);
+      lcd.print("Segunda:  Dep 1:");
+      switch (menuTurno) {
+        case 0:
+          MANHA[M_H - 2][M_V - 1] = contador(MANHA[M_H - 2][M_V - 1]);
+          lcd.setCursor(0, 1);
+          lcd.print(tr + "          " + MANHA[M_H - 2][M_V - 1]);
+          break;
+        case 1:
+          TARDE[M_H - 2][M_V - 1] = contador(TARDE[M_H - 2][M_V - 1]);
+          lcd.setCursor(0, 1);
+          lcd.print(tr + "          " + TARDE[M_H - 2][M_V - 1]);
+          break;
+        case 2:
+          NOITE[M_H - 2][M_V - 1] = contador(NOITE[M_H - 2][M_V - 1]);
+          lcd.setCursor(0, 1);
+          lcd.print(tr + "          " + NOITE[M_H - 2][M_V - 1]);
+          break;
+      }
+      break;
+    case 3:
+      lcd.setCursor(0, 0);
+      lcd.print("Segunda:  Dep 2:");
+      switch (menuTurno) {
+        case 0:
+          MANHA[M_H - 2][M_V - 1] = contador(MANHA[M_H - 2][M_V - 1]);
+          lcd.setCursor(0, 1);
+          lcd.print(tr + "          " + MANHA[M_H - 2][M_V - 1]);
+          break;
+        case 1:
+          TARDE[M_H - 2][M_V - 1] = contador(TARDE[M_H - 2][M_V - 1]);
+          lcd.setCursor(0, 1);
+          lcd.print(tr + "          " + TARDE[M_H - 2][M_V - 1]);
+          break;
+        case 2:
+          NOITE[M_H - 2][M_V - 1] = contador(NOITE[M_H - 2][M_V - 1]);
+          lcd.setCursor(0, 1);
+          lcd.print(tr + "          " + NOITE[M_H - 2][M_V - 1]);
+          break;
+      }
+      break;
+    case 4:
+      lcd.setCursor(0, 0);
+      lcd.print("Segunda:  Dep 3:");
+      switch (menuTurno) {
+        case 0:
+          MANHA[M_H - 2][M_V - 1] = contador(MANHA[M_H - 2][M_V - 1]);
+          lcd.setCursor(0, 1);
+          lcd.print(tr + "          " + MANHA[M_H - 2][M_V - 1]);
+          break;
+        case 1:
+          TARDE[M_H - 2][M_V - 1] = contador(TARDE[M_H - 2][M_V - 1]);
+          lcd.setCursor(0, 1);
+          lcd.print(tr + "          " + TARDE[M_H - 2][M_V - 1]);
+          break;
+        case 2:
+          NOITE[M_H - 2][M_V - 1] = contador(NOITE[M_H - 2][M_V - 1]);
+          lcd.setCursor(0, 1);
+          lcd.print(tr + "          " + NOITE[M_H - 2][M_V - 1]);
+          break;
+      }
+      break;
+    case 5:
+      confirma();
+      break;
+  }
+
+} //end menuSegunda
+
+
+void menuTerca() {
+  switch (M_H) {
+    case 0:
+      lcd.setCursor(0, 0);
+      lcd.print(" DIA DA SEMANA: ");
+      lcd.setCursor(0, 1);
+      lcd.print("< Terca-Feira  >");
+
+      break;
+    case 1:
+      lcd.setCursor(0, 0);
+      lcd.print("Terca:   Turno:");
+      tr = printturno();
+      lcd.setCursor(0, 1);
+      lcd.print("<    " + tr + "     >");
+      break;
+    case 2:
+      lcd.setCursor(0, 0);
+      lcd.print("Terca:    Dep 1:");
+      switch (menuTurno) {
+        case 0:
+          MANHA[M_H - 2][M_V - 1] = contador(MANHA[M_H - 2][M_V - 1]);
+          lcd.setCursor(0, 1);
+          lcd.print(tr + "          " + MANHA[M_H - 2][M_V - 1]);
+          break;
+        case 1:
+          TARDE[M_H - 2][M_V - 1] = contador(TARDE[M_H - 2][M_V - 1]);
+          lcd.setCursor(0, 1);
+          lcd.print(TARDE[M_H - 2][M_V - 1]);
+          break;
+        case 2:
+          NOITE[M_H - 2][M_V - 1] = contador(NOITE[M_H - 2][M_V - 1]);
+          lcd.setCursor(0, 1);
+          lcd.print(tr + "          " + NOITE[M_H - 2][M_V - 1]);
+          break;
+      }
+      break;
+    case 3:
+      lcd.setCursor(0, 0);
+      lcd.print("Terca:    Dep 2:");
+      switch (menuTurno) {
+        case 0:
+          MANHA[M_H - 2][M_V - 1] = contador(MANHA[M_H - 2][M_V - 1]);
+          lcd.setCursor(0, 1);
+          lcd.print(tr + "          " + MANHA[M_H - 2][M_V - 1]);
+          break;
+        case 1:
+          TARDE[M_H - 2][M_V - 1] = contador(TARDE[M_H - 2][M_V - 1]);
+          lcd.setCursor(0, 1);
+          lcd.print(tr + "          " + TARDE[M_H - 2][M_V - 1]);
+          break;
+        case 2:
+          NOITE[M_H - 2][M_V - 1] = contador(NOITE[M_H - 2][M_V - 1]);
+          lcd.setCursor(0, 1);
+          lcd.print(tr + "          " + NOITE[M_H - 2][M_V - 1]);
+          break;
+      }
+      break;
+    case 4:
+      lcd.setCursor(0, 0);
+      lcd.print("Terca:    Dep 3:");
+      switch (menuTurno) {
+        case 0:
+          MANHA[M_H - 2][M_V - 1] = contador(MANHA[M_H - 2][M_V - 1]);
+          lcd.setCursor(0, 1);
+          lcd.print(tr + "          " + MANHA[M_H - 2][M_V - 1]);
+          break;
+        case 1:
+          TARDE[M_H - 2][M_V - 1] = contador(TARDE[M_H - 2][M_V - 1]);
+          lcd.setCursor(0, 1);
+          lcd.print(tr + "          " + TARDE[M_H - 2][M_V - 1]);
+          break;
+        case 2:
+          NOITE[M_H - 2][M_V - 1] = contador(NOITE[M_H - 2][M_V - 1]);
+          lcd.setCursor(0, 1);
+          lcd.print(tr + "          " + NOITE[M_H - 2][M_V - 1]);
+          break;
+      }
+      break;
+    case 5:
+      confirma();
+      break;
+  }
+
+} //end menuTerca
+
+
+void menuQuarta() {
+  switch (M_H) {
+    case 0:
+      lcd.setCursor(0, 0);
+      lcd.print(" DIA DA SEMANA: ");
+      lcd.setCursor(0, 1);
+      lcd.print("< Quarta-Feira >");
+      break;
+    case 1:
+      lcd.setCursor(0, 0);
+      lcd.print("Quarta:  Turno:");
+      tr = printturno();
+      lcd.setCursor(0, 1);
+      lcd.print("<    " + tr + "     >");
+      break;
+    case 2:
+      lcd.setCursor(0, 0);
+      lcd.print("Quarta:   Dep 1:");
+      switch (menuTurno) {
+        case 0:
+          MANHA[M_H - 2][M_V - 1] = contador(MANHA[M_H - 2][M_V - 1]);
+          lcd.setCursor(0, 1);
+          lcd.print(tr + "          " + MANHA[M_H - 2][M_V - 1]);
+          break;
+        case 1:
+          TARDE[M_H - 2][M_V - 1] = contador(TARDE[M_H - 2][M_V - 1]);
+          lcd.setCursor(0, 1);
+          lcd.print(tr + "          " + TARDE[M_H - 2][M_V - 1]);
+          break;
+        case 2:
+          NOITE[M_H - 2][M_V - 1] = contador(NOITE[M_H - 2][M_V - 1]);
+          lcd.setCursor(0, 1);
+          lcd.print(tr + "          " + NOITE[M_H - 2][M_V - 1]);
+          break;
+      }
+      break;
+    case 3:
+      lcd.setCursor(0, 0);
+      lcd.print("Quarta:   Dep 2:");
+      switch (menuTurno) {
+        case 0:
+          MANHA[M_H - 2][M_V - 1] = contador(MANHA[M_H - 2][M_V - 1]);
+          lcd.setCursor(0, 1);
+          lcd.print(tr + "          " + MANHA[M_H - 2][M_V - 1]);
+          break;
+        case 1:
+          TARDE[M_H - 2][M_V - 1] = contador(TARDE[M_H - 2][M_V - 1]);
+          lcd.setCursor(0, 1);
+          lcd.print(tr + "          " + TARDE[M_H - 2][M_V - 1]);
+          break;
+        case 2:
+          NOITE[M_H - 2][M_V - 1] = contador(NOITE[M_H - 2][M_V - 1]);
+          lcd.setCursor(0, 1);
+          lcd.print(tr + "          " + NOITE[M_H - 2][M_V - 1]);
+          break;
+      }
+      break;
+    case 4:
+      lcd.setCursor(0, 0);
+      lcd.print("Quarta:   Dep 3:");
+      switch (menuTurno) {
+        case 0:
+          MANHA[M_H - 2][M_V - 1] = contador(MANHA[M_H - 2][M_V - 1]);
+          lcd.setCursor(0, 1);
+          lcd.print(tr + "          " + MANHA[M_H - 2][M_V - 1]);
+          break;
+        case 1:
+          TARDE[M_H - 2][M_V - 1] = contador(TARDE[M_H - 2][M_V - 1]);
+          lcd.setCursor(0, 1);
+          lcd.print(tr + "          " + TARDE[M_H - 2][M_V - 1]);
+          break;
+        case 2:
+          NOITE[M_H - 2][M_V - 1] = contador(NOITE[M_H - 2][M_V - 1]);
+          lcd.setCursor(0, 1);
+          lcd.print(tr + "          " + NOITE[M_H - 2][M_V - 1]);
+          break;
+      }
+      break;
+    case 5:
+      confirma();
+      break;
+  }
+
+} //end menuQuarta
+
+
+void menuQuinta() {
+  switch (M_H) {
+    case 0:
+      lcd.setCursor(0, 0);
+      lcd.print(" DIA DA SEMANA: ");
+      lcd.setCursor(0, 1);
+      lcd.print("< Quinta-Feira >");
+      break;
+    case 1:
+      lcd.setCursor(0, 0);
+      lcd.print("Quinta:  Turno:");
+      tr = printturno();
+      lcd.setCursor(0, 1);
+      lcd.print("<    " + tr + "     >");
+      break;
+    case 2:
+      lcd.setCursor(0, 0);
+      lcd.print("Quinta:   Dep 1:");
+      switch (menuTurno) {
+        case 0:
+          MANHA[M_H - 2][M_V - 1] = contador(MANHA[M_H - 2][M_V - 1]);
+          lcd.setCursor(0, 1);
+          lcd.print(tr + "          " + MANHA[M_H - 2][M_V - 1]);
+          break;
+        case 1:
+          TARDE[M_H - 2][M_V - 1] = contador(TARDE[M_H - 2][M_V - 1]);
+          lcd.setCursor(0, 1);
+          lcd.print(tr + "          " + TARDE[M_H - 2][M_V - 1]);
+          break;
+        case 2:
+          NOITE[M_H - 2][M_V - 1] = contador(NOITE[M_H - 2][M_V - 1]);
+          lcd.setCursor(0, 1);
+          lcd.print(tr + "          " + NOITE[M_H - 2][M_V - 1]);
+          break;
+      }
+      break;
+    case 3:
+      lcd.setCursor(0, 0);
+      lcd.print("Quinta:   Dep 2:");
+      switch (menuTurno) {
+        case 0:
+          MANHA[M_H - 2][M_V - 1] = contador(MANHA[M_H - 2][M_V - 1]);
+          lcd.setCursor(0, 1);
+          lcd.print(tr + "          " + MANHA[M_H - 2][M_V - 1]);
+          break;
+        case 1:
+          TARDE[M_H - 2][M_V - 1] = contador(TARDE[M_H - 2][M_V - 1]);
+          lcd.setCursor(0, 1);
+          lcd.print(tr + "          " + TARDE[M_H - 2][M_V - 1]);
+          break;
+        case 2:
+          NOITE[M_H - 2][M_V - 1] = contador(NOITE[M_H - 2][M_V - 1]);
+          lcd.setCursor(0, 1);
+          lcd.print(tr + "          " + NOITE[M_H - 2][M_V - 1]);
+          break;
+      }
+      break;
+    case 4:
+      lcd.setCursor(0, 0);
+      lcd.print("Quinta:   Dep 3:");
+      switch (menuTurno) {
+        case 0:
+          MANHA[M_H - 2][M_V - 1] = contador(MANHA[M_H - 2][M_V - 1]);
+          lcd.setCursor(0, 1);
+          lcd.print(tr + "          " + MANHA[M_H - 2][M_V - 1]);
+          break;
+        case 1:
+          TARDE[M_H - 2][M_V - 1] = contador(TARDE[M_H - 2][M_V - 1]);
+          lcd.setCursor(0, 1);
+          lcd.print(tr + "          " + TARDE[M_H - 2][M_V - 1]);
+          break;
+        case 2:
+          NOITE[M_H - 2][M_V - 1] = contador(NOITE[M_H - 2][M_V - 1]);
+          lcd.setCursor(0, 1);
+          lcd.print(tr + "          " + NOITE[M_H - 2][M_V - 1]);
+          break;
+      }
+      break;
+    case 5:
+      confirma();
+      break;
+  }
+
+} //end menuQuinta
+
+
+void menuSexta()
+{
+  switch (M_H)
+  {
+    case 0:
+      lcd.setCursor(0, 0);
+      lcd.print(" DIA DA SEMANA: ");
+      lcd.setCursor(0, 1);
+      lcd.print("< Sexta-Feira  >");
+      break;
+    case 1:
+      lcd.setCursor(0, 0);
+      lcd.print("Sexta:   Turno:");
+      tr = printturno();
+      lcd.setCursor(0, 1);
+      lcd.print("<    " + tr + "     >");
+      break;
+    case 2:
+      lcd.setCursor(0, 0);
+      lcd.print("Sexta:    Dep 1:");
+      switch (menuTurno) {
+        case 0:
+          MANHA[M_H - 2][M_V - 1] = contador(MANHA[M_H - 2][M_V - 1]);
+          lcd.setCursor(0, 1);
+          lcd.print(tr + "          " + MANHA[M_H - 2][M_V - 1]);
+          break;
+        case 1:
+          TARDE[M_H - 2][M_V - 1] = contador(TARDE[M_H - 2][M_V - 1]);
+          lcd.setCursor(0, 1);
+          lcd.print(tr + "          " + TARDE[M_H - 2][M_V - 1]);
+          break;
+        case 2:
+          NOITE[M_H - 2][M_V - 1] = contador(NOITE[M_H - 2][M_V - 1]);
+          lcd.setCursor(0, 1);
+          lcd.print(tr + "          " + NOITE[M_H - 2][M_V - 1]);
+          break;
+      }
+      break;
+    case 3:
+      lcd.setCursor(0, 0);
+      lcd.print("Sexta:    Dep 2:");
+      switch (menuTurno) {
+        case 0:
+          MANHA[M_H - 2][M_V - 1] = contador(MANHA[M_H - 2][M_V - 1]);
+          lcd.setCursor(0, 1);
+          lcd.print(tr + "          " + MANHA[M_H - 2][M_V - 1]);
+          break;
+        case 1:
+          TARDE[M_H - 2][M_V - 1] = contador(TARDE[M_H - 2][M_V - 1]);
+          lcd.setCursor(0, 1);
+          lcd.print(tr + "          " + TARDE[M_H - 2][M_V - 1]);
+          break;
+        case 2:
+          NOITE[M_H - 2][M_V - 1] = contador(NOITE[M_H - 2][M_V - 1]);
+          lcd.setCursor(0, 1);
+          lcd.print(tr + "          " + NOITE[M_H - 2][M_V - 1]);
+          break;
+      }
+      break;
+    case 4:
+      lcd.setCursor(0, 0);
+      lcd.print("Sexta:    Dep 3:");
+      switch (menuTurno) {
+        case 0:
+          MANHA[M_H - 2][M_V - 1] = contador(MANHA[M_H - 2][M_V - 1]);
+          lcd.setCursor(0, 1);
+          lcd.print(tr + "          " + MANHA[M_H - 2][M_V - 1]);
+          break;
+        case 1:
+          TARDE[M_H - 2][M_V - 1] = contador(TARDE[M_H - 2][M_V - 1]);
+          lcd.setCursor(0, 1);
+          lcd.print(tr + "          " + TARDE[M_H - 2][M_V - 1]);
+          break;
+        case 2:
+          NOITE[M_H - 2][M_V - 1] = contador(NOITE[M_H - 2][M_V - 1]);
+          lcd.setCursor(0, 1);
+          lcd.print(tr + "          " + NOITE[M_H - 2][M_V - 1]);
+          break;
+      }
+      break;
+    case 5:
+      confirma();
+      break;
+  }
+
+} //end menuSexta
+
+
+void menuSabado()
+{
+  switch (M_H)
+  {
+    case 0:
+      lcd.setCursor(0, 0);
+      lcd.print(" DIA DA SEMANA: ");
+      lcd.setCursor(0, 1);
+      lcd.print("<    Sabado    >");
+      break;
+    case 1:
+      lcd.setCursor(0, 0);
+      lcd.print("Sabado:  Turno:");
+      tr = printturno();
+      lcd.setCursor(0, 1);
+      lcd.print("<    " + tr + "     >");
+      break;
+    case 2:
+      lcd.setCursor(0, 0);
+      lcd.print("Sabado:   Dep 1:");
+      switch (menuTurno) {
+        case 0:
+          MANHA[M_H - 2][M_V - 1] = contador(MANHA[M_H - 2][M_V - 1]);
+          lcd.setCursor(0, 1);
+          lcd.print(tr + "          " + MANHA[M_H - 2][M_V - 1]);
+          break;
+        case 1:
+          TARDE[M_H - 2][M_V - 1] = contador(TARDE[M_H - 2][M_V - 1]);
+          lcd.setCursor(0, 1);
+          lcd.print(tr + "          " + TARDE[M_H - 2][M_V - 1]);
+          break;
+        case 2:
+          NOITE[M_H - 2][M_V - 1] = contador(NOITE[M_H - 2][M_V - 1]);
+          lcd.setCursor(0, 1);
+          lcd.print(tr + "          " + NOITE[M_H - 2][M_V - 1]);
+          break;
+      }
+      break;
+    case 3:
+      lcd.setCursor(0, 0);
+      lcd.print("Sabado:   Dep 2:");
+      switch (menuTurno) {
+        case 0:
+          MANHA[M_H - 2][M_V - 1] = contador(MANHA[M_H - 2][M_V - 1]);
+          lcd.setCursor(0, 1);
+          lcd.print(tr + "          " + MANHA[M_H - 2][M_V - 1]);
+          break;
+        case 1:
+          TARDE[M_H - 2][M_V - 1] = contador(TARDE[M_H - 2][M_V - 1]);
+          lcd.setCursor(0, 1);
+          lcd.print(tr + "          " + TARDE[M_H - 2][M_V - 1]);
+          break;
+        case 2:
+          NOITE[M_H - 2][M_V - 1] = contador(NOITE[M_H - 2][M_V - 1]);
+          lcd.setCursor(0, 1);
+          lcd.print(tr + "          " + NOITE[M_H - 2][M_V - 1]);
+          break;
+      }
+      break;
+    case 4:
+      lcd.setCursor(0, 0);
+      lcd.print("Sabado:   Dep 3:");
+      switch (menuTurno) {
+        case 0:
+          MANHA[M_H - 2][M_V - 1] = contador(MANHA[M_H - 2][M_V - 1]);
+          lcd.setCursor(0, 1);
+          lcd.print(tr + "          " + MANHA[M_H - 2][M_V - 1]);
+          break;
+        case 1:
+          TARDE[M_H - 2][M_V - 1] = contador(TARDE[M_H - 2][M_V - 1]);
+          lcd.setCursor(0, 1);
+          lcd.print(tr + "          " + TARDE[M_H - 2][M_V - 1]);
+          break;
+        case 2:
+          NOITE[M_H - 2][M_V - 1] = contador(NOITE[M_H - 2][M_V - 1]);
+          lcd.setCursor(0, 1);
+          lcd.print(tr + "          " + NOITE[M_H - 2][M_V - 1]);
+          break;
+      }
+      break;
+    case 5:
+      confirma();
+      break;
+  }
+
+} //end menuSabado
+
+// =============================================================================================================
+// --- contador e confimra ---
+
+int contador(int c) {  // Contador
+
+  if (analogRead(eixo_Y) == 0) {
+    if (c < 9) {
+      delay(500);
+      c = c + 1;
+    }
+  }
+  if (analogRead(eixo_Y) == 1023) {
+    delay(500);
+    if (c > 0) {
+      c = c - 1;
+    }
+  }
+
+  return c;
+} // end Contador
+
+void confirma() { // Comfirma
+  lcd.setCursor(0, 0);
+  lcd.print("   Confirmar?   ");
+  lcd.setCursor(0, 1);
+  lcd.print("< Nao      Sim >");
+
+  if (analogRead(eixo_Y) == 0) {
+    gravaMemoria();
+    lcd.setCursor(0, 0);
+    lcd.print("   Confirmado   ");
+    lcd.setCursor(0, 1);
+    lcd.print("                ");
+    delay(1000);
+    M_H = 0;
+    M_V = 0;
+
+  }
+
+  if (analogRead(eixo_Y) == 1023) {
+    leMemoria();
+    lcd.setCursor(0, 0);
+    lcd.print("   Cancelado    ");
+    lcd.setCursor(0, 1);
+    lcd.print("                ");
+    delay(1000);
+    M_H = 0;
+    M_V = 0;
+    void setup();
+  }
+  menuTurno = 0;
+
+}//end Confirma
+
+// =============================================================================================================
+// --- Calcular o dia da semana ---
+
+int diasemana(int dia, int mes, int ano) {//end verificar semana
+  int a, b, c, d, r;
+  boolean bis, data;
+  bis = bissexto(ano);
+  data = datavalida(dia, mes, ano, bis);
+  a = ano - 1900;
+  b = a / 4;
+  if (bis == true) {
+    b = b - 1;
+  }
+  c = Nm(mes);
+  d = dia - 1;
+  r = (a + b + c + d) % 7;
+
+  switch (r) {
+    case 0:
+      return 0;
+      break;
+    case 1:
+      return 1;
+      break;
+    case 2:
+      return 2;
+      break;
+    case 3:
+      return 3;
+      break;
+    case 4:
+      return 4;
+      break;
+    case 5:
+      return 5;
+      break;
+    case 6:
+      return 6;
+      break;
+    default:
+      break;
+  }
+}               //end verificar semana fim
+
+boolean bissexto(int ano) { //teste ano bissexto
+  boolean x;
+  if ((ano % 4) != 0) {
+    x = false;
+  }
+  else if ((ano % 100) == 0) {
+    x = false;
+  }
+  else if ((ano % 400) != 0) {
+    x = false;
+  }
+  else {
+    x = true;
+  }
+  return x;
+}              //teste ano bissexto fim
+
+boolean datavalida (int dia, int mes, int ano, boolean bis) {  // teste data
+  boolean x = true;
+  if (ano < 1900) {
+    x = false;
+  }
+  else if (mes > 12 || mes < 1) {
+    x = false;
+  }
+  else if (mes == 1 || mes == 3 || mes == 5 || mes == 7 || mes == 8 || mes == 10 || mes == 12) {
+    if (dia < 1 || dia > 31) {
+      x = false;
+    }
+  }
+  else if (mes == 4 || mes == 6 || mes == 9 || mes == 11) {
+    if (dia < 1 || dia > 30) {
+      x = false;
+    }
+  }
+  else if (mes == 2) {
+    if (bis == true) {
+      if (dia < 1 || dia > 29) {
+        x = false;
+      }
+    }
+    if (bis == false) {
+      if (dia < 1 || dia > 28) {
+        x = false;
+      }
+    }
+  }
+  else {
+    x = true;
+  }
+  return x;
+}                                 // teste data fim
+
+int Nm (int mes) {// numero do mes
+  int x = 0;
+  if (mes == 1 || mes == 10) {
+    x = 0;
+  }
+  else if (mes == 2 || mes == 3 || mes == 11) {
+    x = 3;
+  }
+  else if (mes == 4 || mes == 7) {
+    x = 6;
+  }
+  else if (mes == 5) {
+    x = 1;
+  }
+  else if (mes == 6) {
+    x = 4;
+  }
+  else if (mes == 8) {
+    x = 2;
+  }
+  else if (mes == 9 || mes == 12) {
+    x = 5;
+  }
+  return x;
+}                   // numero do mes fim
+
+
+// =============================================================================================================
+// --- Açãao dos depositos ---
+
+void depositos(int ds, int turnoInt) {
+  trigger(ds);
+  M_H = 0;
+  M_V = 0;
+}
+
+void trigger(int ds) {
+  int i;
+  for (i = 0; i < 3; i = i + 1) {
+    deposito1(ds, i);
+    deposito2(ds, i);
+    deposito3(ds, i);
+    digitalWrite( dp1, HIGH);
+    digitalWrite( dp2, HIGH);
+    digitalWrite( dp3, HIGH);
+    delay(1500);
+    digitalWrite( dp1, LOW);
+    digitalWrite( dp2, LOW);
+    digitalWrite( dp3, LOW);
+    delay(1500);
+  }
+}
+
+void deposito1(int ds, int turnoInt) {
+  int i;
+  switch (turnoInt) {
+    case 0:
+      for (i = 0; i < MANHA[0][ds]; i = i + 1) {
+        lcd.setCursor(0, 0);
+        lcd.print("Exec.:    Manha:");
+        lcd.setCursor(0, 1);
+        lcd.print("Deposito 1:     ");
+        lcd.setCursor(15, 1);
+        lcd.print(i + 1);
+        digitalWrite( dp1, HIGH);
+        delay(1000);
+        digitalWrite( dp1, LOW);
+        delay(1000);
+      }
+      break;
+    case 1:
+      for (i = 0; i < TARDE[0][ds]; i = i + 1) {
+        lcd.setCursor(0, 0);
+        lcd.print("Exec.:    Tarde:");
+        lcd.setCursor(0, 1);
+        lcd.print("Deposito 1:     ");
+        lcd.setCursor(15, 1);
+        lcd.print(i + 1);
+        digitalWrite( dp1, HIGH);
+        delay(1000);
+        digitalWrite( dp1, LOW);
+        delay(1000);
+      }
+      break;
+    case 2:
+      for (i = 0; i < NOITE[0][ds]; i = i + 1) {
+        lcd.setCursor(0, 0);
+        lcd.print("Exec.:    Noite:");
+        lcd.setCursor(0, 1);
+        lcd.print("Deposito 1:     ");
+        lcd.setCursor(15, 1);
+        lcd.print(i + 1);
+        digitalWrite( dp1, HIGH);
+        delay(1000);
+        digitalWrite( dp1, LOW);
+        delay(1000);
+      }
+      break;
+  }
+}
+
+
+void deposito2(int ds, int turnoInt) {
+  int i;
+  switch (turnoInt) {
+    case 0:
+      for (i = 0; i < MANHA[1][ds]; i = i + 1) {
+        lcd.setCursor(0, 0);
+        lcd.print("Exec.:    Manha:");
+        lcd.setCursor(0, 1);
+        lcd.print("Deposito 2:     ");
+        lcd.setCursor(15, 1);
+        lcd.print(i + 1);
+        digitalWrite( dp2, HIGH);
+        delay(1000);
+        digitalWrite( dp2, LOW);
+        delay(1000);
+      }
+      break;
+    case 1:
+      for (i = 0; i < TARDE[1][ds]; i = i + 1) {
+        lcd.setCursor(0, 0);
+        lcd.print("Exec.:    Tarde:");
+        lcd.setCursor(0, 1);
+        lcd.print("Deposito 2:     ");
+        lcd.setCursor(15, 1);
+        lcd.print(i + 1);
+        digitalWrite( dp2, HIGH);
+        delay(1000);
+        digitalWrite( dp2, LOW);
+        delay(1000);
+      }
+      break;
+    case 2:
+      for (i = 0; i < NOITE[1][ds]; i = i + 1) {
+        lcd.setCursor(0, 0);
+        lcd.print("Exec.:    Noite:");
+        lcd.setCursor(0, 1);
+        lcd.print("Deposito 2:     ");
+        lcd.setCursor(15, 1);
+        lcd.print(i + 1);
+        digitalWrite( dp2, HIGH);
+        delay(1000);
+        digitalWrite( dp2, LOW);
+        delay(1000);
+      }
+      break;
+  }
+}
+
+void deposito3(int ds, int turnoInt) {
+  int i;
+  switch (turnoInt) {
+    case 0:
+      for (i = 0; i < MANHA[2][ds]; i = i + 1) {
+        lcd.setCursor(0, 0);
+        lcd.print("Exec.:    Manha:");
+        lcd.setCursor(0, 1);
+        lcd.print("Deposito 3:     ");
+        lcd.setCursor(15, 1);
+        lcd.print(i + 1);
+        digitalWrite( dp3, HIGH);
+        delay(1000);
+        digitalWrite( dp3, LOW);
+        delay(1000);
+      }
+      break;
+    case 1:
+      for (i = 0; i < TARDE[2][ds]; i = i + 1) {
+        lcd.setCursor(0, 0);
+        lcd.print("Exec.:    Tarde:");
+        lcd.setCursor(0, 1);
+        lcd.print("Deposito 3:     ");
+        lcd.setCursor(15, 1);
+        lcd.print(i + 1);
+        digitalWrite( dp3, HIGH);
+        delay(1000);
+        digitalWrite( dp3, LOW);
+        delay(1000);
+      }
+      break;
+    case 2:
+      for (i = 0; i < NOITE[2][ds]; i = i + 1) {
+        lcd.setCursor(0, 0);
+        lcd.print("Exec.:    Noite:");
+        lcd.setCursor(0, 1);
+        lcd.print("Deposito 3:     ");
+        lcd.setCursor(15, 1);
+        lcd.print(i + 1);
+        digitalWrite( dp3, HIGH);
+        delay(1000);
+        digitalWrite( dp3, LOW);
+        delay(1000);
+      }
+      break;
+  }
+}
+// =============================================================================================================
+// --- Menu Turno ---
+
+String printturno() {
+  keyTurno();
+  switch (menuTurno) {
+    case 0:
+      return "Manha";
+    case 1:
+      return "Tarde";
+    case 2:
+      return "Noite";
+  }
+}
+
+void keyTurno() {
+  if (analogRead(eixo_Y) == 0) {
+    if (menuTurno < 2) {
+      menuTurno = menuTurno + 1;
+      delay(500);
+    }
+    else {
+      menuTurno = 0;
+      delay(500);
+    }
+  }
+
+  if (analogRead(eixo_Y) == 1023) {
+    if (menuTurno > 0) {
+      delay(500);
+      menuTurno = menuTurno - 1;
+    }
+    else {
+      delay(500);
+      menuTurno = 2;
+    }
+  }
+}
+// =============================================================================================================
+// --- transformar turno em inteiro ---
+int turno(int h) {
+  if (h < 12) {
+    return 0;
+  }
+  else if (h >= 12 && h < 18) {
+    return 1;
+  }
+  else {
+    return 2;
+  }
+}
+// =============================================================================================================
+// --- leMemoria eeprom ---
+void leMemoria() {
+  int c = 0;
+  for (int i = 0; i < n_deposito; i += 1) {
+    for (int j = 0; j < d_semana; j += 1) {
+      MANHA [i][j] = EEPROM[c];
+      c += 1;
+    }
+  }
+  c += 1;
+  for (int i = 0; i < n_deposito; i += 1) {
+    for (int j = 0; j < d_semana; j += 1) {
+      TARDE [i][j] = EEPROM[c];
+      c += 1;
+    }
+  }
+  c += 1;
+  for (int i = 0; i < n_deposito; i += 1) {
+    for (int j = 0; j < d_semana; j += 1) {
+      NOITE [i][j] = EEPROM[c];
+      c += 1;
+    }
+  }
+}
+// =============================================================================================================
+// --- gravaMemoria eeprom ---
+void gravaMemoria() {
+  int c = 0;
+  for (int i = 0; i < n_deposito; i += 1) {
+    for (int j = 0; j < d_semana; j += 1) {
+      EEPROM[c] = MANHA [i][j];
+      c += 1;
+    }
+  }
+  c += 1;
+  for (int i = 0; i < n_deposito; i += 1) {
+    for (int j = 0; j < d_semana; j += 1) {
+      EEPROM[c] = TARDE [i][j];
+      c += 1;
+    }
+  }
+  c += 1;
+  for (int i = 0; i < n_deposito; i += 1) {
+    for (int j = 0; j < d_semana; j += 1) {
+      EEPROM[c] = TARDE [i][j];
+      c += 1;
+    }
+  }
+}
